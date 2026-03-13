@@ -24,36 +24,41 @@ class ViewController: UIViewController {
     let setupContainerView = UIView()
     let ipTextField = UITextField()
     
-    // Biến trạng thái kiểm soát Toàn màn hình
+    // Biến trạng thái kiểm soát Toàn màn hình & Xoay máy
     var isStreaming = false
     
     // ==========================================
-    // CẤU HÌNH HIỂN THỊ ĐỘNG (TỰ ĐỘNG FULLSCREEN KHI STREAM)
+    // CẤU HÌNH HIỂN THỊ: CHỈ TRÀN VIỀN KHI STREAMING
     // ==========================================
     override var prefersStatusBarHidden: Bool {
-        return isStreaming // Ẩn khi đang stream, hiện khi ở màn hình nhập IP
+        return isStreaming // Ẩn khi đang stream, hiện khi ở màn hình dọc
     }
     
     override var prefersHomeIndicatorAutoHidden: Bool {
-        return isStreaming // Ẩn thanh Home mỏng ở dưới đáy (nếu máy có) khi đang stream
+        return isStreaming
     }
     
     override var shouldAutorotate: Bool { 
         return true 
     }
     
+    // CHÌA KHÓA: Nếu đang stream thì Ngang, nếu chưa stream thì Dọc
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { 
-        return .landscape 
+        return isStreaming ? .landscape : .portrait
     }
     
     override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge { 
-        return isStreaming ? .all : [] // Chống đơ mép màn hình khi đang chơi
+        return isStreaming ? .all : []
     }
     
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
         view.isMultipleTouchEnabled = true
+        
+        // Chạm ra ngoài để cất bàn phím
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
+        view.addGestureRecognizer(tapGesture)
         
         // Setup Video Layer
         videoLayer.frame = view.bounds
@@ -66,21 +71,25 @@ class ViewController: UIViewController {
         CMTimebaseSetRate(videoLayer.controlTimebase!, rate: 1.0)
         view.layer.addSublayer(videoLayer)
         
-        // Vẽ bảng nhập IP
         setupInitialUI()
     }
     
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         videoLayer.frame = view.bounds
-        setupContainerView.center = view.center
+        // Đẩy khung nhập IP lên cao hơn tâm màn hình để không bị bàn phím che
+        setupContainerView.center = CGPoint(x: view.bounds.midX, y: view.bounds.midY - 80)
+    }
+    
+    @objc func dismissKeyboard() {
+        view.endEditing(true)
     }
     
     // ==========================================
-    // GIAO DIỆN NHẬP IP BÌNH THƯỜNG
+    // GIAO DIỆN NHẬP IP (MÀN HÌNH DỌC)
     // ==========================================
     func setupInitialUI() {
-        setupContainerView.frame = CGRect(x: 0, y: 0, width: 320, height: 180)
+        setupContainerView.frame = CGRect(x: 0, y: 0, width: 300, height: 180)
         setupContainerView.backgroundColor = UIColor(white: 0.15, alpha: 0.95)
         setupContainerView.layer.cornerRadius = 15
         setupContainerView.layer.shadowColor = UIColor.black.cgColor
@@ -88,21 +97,21 @@ class ViewController: UIViewController {
         setupContainerView.layer.shadowOffset = CGSize(width: 0, height: 5)
         view.addSubview(setupContainerView)
         
-        let titleLbl = UILabel(frame: CGRect(x: 20, y: 15, width: 280, height: 30))
+        let titleLbl = UILabel(frame: CGRect(x: 10, y: 15, width: 280, height: 30))
         titleLbl.text = "Nhập IP Máy Tính"
         titleLbl.textColor = .white
         titleLbl.font = UIFont.boldSystemFont(ofSize: 18)
         titleLbl.textAlignment = .center
         setupContainerView.addSubview(titleLbl)
         
-        let subLbl = UILabel(frame: CGRect(x: 20, y: 45, width: 280, height: 20))
+        let subLbl = UILabel(frame: CGRect(x: 10, y: 45, width: 280, height: 20))
         subLbl.text = "(Cắm cáp USB & Bật Hotspot)"
         subLbl.textColor = .lightGray
         subLbl.font = UIFont.systemFont(ofSize: 13)
         subLbl.textAlignment = .center
         setupContainerView.addSubview(subLbl)
         
-        ipTextField.frame = CGRect(x: 30, y: 75, width: 260, height: 40)
+        ipTextField.frame = CGRect(x: 20, y: 75, width: 260, height: 40)
         ipTextField.backgroundColor = .white
         ipTextField.textColor = .black
         ipTextField.keyboardType = .decimalPad
@@ -111,7 +120,7 @@ class ViewController: UIViewController {
         ipTextField.text = UserDefaults.standard.string(forKey: "LastPCIP") ?? "172.20.10."
         setupContainerView.addSubview(ipTextField)
         
-        let btn = UIButton(frame: CGRect(x: 85, y: 125, width: 150, height: 40))
+        let btn = UIButton(frame: CGRect(x: 75, y: 125, width: 150, height: 40))
         btn.setTitle("Bắt đầu", for: .normal)
         btn.backgroundColor = UIColor.systemBlue
         btn.layer.cornerRadius = 8
@@ -120,15 +129,33 @@ class ViewController: UIViewController {
         setupContainerView.addSubview(btn)
     }
     
+    // ==========================================
+    // HÀM ÉP XOAY MÀN HÌNH
+    // ==========================================
+    func forceOrientation(to orientationMask: UIInterfaceOrientationMask, orientationValue: UIInterfaceOrientation) {
+        if #available(iOS 16.0, *) {
+            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
+            windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: orientationMask)) { error in
+                print("Lỗi xoay màn hình: \(error)")
+            }
+        } else {
+            UIDevice.current.setValue(orientationValue.rawValue, forKey: "orientation")
+            UIViewController.attemptRotationToDeviceOrientation()
+        }
+    }
+    
     @objc func btnStartClicked() {
         let ip = ipTextField.text ?? ""
         UserDefaults.standard.set(ip, forKey: "LastPCIP")
-        ipTextField.resignFirstResponder()
+        dismissKeyboard()
         
         // Chuyển sang trạng thái Streaming
         isStreaming = true
         
-        // Tạo hiệu ứng tàng hình bảng IP và làm biến mất thanh trạng thái (Fullscreen)
+        // 1. Ép máy xoay Ngang
+        forceOrientation(to: .landscape, orientationValue: .landscapeRight)
+        
+        // 2. Tàng hình bảng IP và làm mất thanh trạng thái (Tràn viền)
         UIView.animate(withDuration: 0.3) {
             self.setupContainerView.alpha = 0
             self.setNeedsStatusBarAppearanceUpdate()
@@ -139,15 +166,17 @@ class ViewController: UIViewController {
         }
     }
     
-    // Hàm gọi khi mất kết nối (Đưa máy về lại giao diện ban đầu)
     func showSetupScreen() {
         DispatchQueue.main.async {
             self.isStreaming = false
             self.setupContainerView.isHidden = false
             
-            // Hủy kết nối mạng hiện tại
+            // Hủy kết nối
             self.touchConnection?.cancel()
             self.videoConnection?.cancel()
+            
+            // Ép máy xoay Dọc trở lại
+            self.forceOrientation(to: .portrait, orientationValue: .portrait)
             
             UIView.animate(withDuration: 0.3) {
                 self.setupContainerView.alpha = 1
@@ -158,7 +187,7 @@ class ViewController: UIViewController {
     }
     
     // ==========================================
-    // KẾT NỐI MẠNG & GIẢI MÃ VIDEO (H.264 Hardware)
+    // KẾT NỐI MẠNG & GIẢI MÃ VIDEO
     // ==========================================
     func startConnection(to ip: String) {
         setupNetwork(pcIP: ip)
@@ -169,9 +198,7 @@ class ViewController: UIViewController {
         let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(pcIP), port: 8765)
         touchConnection = NWConnection(to: endpoint, using: .tcp)
         touchConnection?.stateUpdateHandler = { [weak self] state in
-            if case .failed(_) = state { 
-                self?.showSetupScreen() 
-            }
+            if case .failed(_) = state { self?.showSetupScreen() }
         }
         touchConnection?.start(queue: queue)
     }
@@ -217,7 +244,6 @@ class ViewController: UIViewController {
     
     func extractNALUnits() {
         let startCode: [UInt8] = [0, 0, 0, 1]
-        
         while true {
             guard let startIndex = findSequence(startCode, in: videoBuffer) else { break }
             let nextStartIndex = findSequence(startCode, in: videoBuffer, searchRange: (startIndex + 4)..<videoBuffer.count)
@@ -228,9 +254,8 @@ class ViewController: UIViewController {
                 let bytes = [UInt8](naluData)
                 let naluType = bytes[0] & 0x1F
                 
-                if naluType == 7 {
-                    spsData = bytes
-                } else if naluType == 8 {
+                if naluType == 7 { spsData = bytes }
+                else if naluType == 8 {
                     ppsData = bytes
                     createVideoFormatDescription()
                 } else if naluType == 5 || naluType == 1 {
@@ -325,7 +350,6 @@ class ViewController: UIViewController {
     }
     
     func sendTouches(touches: Set<UITouch>, action: String) {
-        // CHỈ GỬI CẢM ỨNG KHI ĐANG TRONG TRẠNG THÁI STREAM (ẨN BẢNG IP)
         guard isStreaming, touchConnection?.state == .ready else { return }
         
         let screenWidth = view.bounds.width
