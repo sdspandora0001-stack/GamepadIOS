@@ -1,4 +1,4 @@
-platform :ios, '12.0'
+platform :ios, '15.0'
 target 'GamepadIOS' do
   use_frameworks!
   pod 'MobileVLCKit'
