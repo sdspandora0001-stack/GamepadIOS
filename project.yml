@@ -1,11 +1,14 @@
 name: GamepadIOS
 options:
   bundleIdPrefix: com.gamepad
+  createSharedSchemes: true
 targets:
   GamepadIOS:
     type: application
     platform: iOS
-    deploymentTarget: "12.0"
+    deploymentTarget: "15.0"
     sources: [Sources]
     info:
       path: Sources/Info.plist
+    settings:
+      ENABLE_BITCODE: false
