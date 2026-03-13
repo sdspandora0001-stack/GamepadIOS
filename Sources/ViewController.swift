@@ -17,23 +17,65 @@ class ViewController: UIViewController, VLCMediaPlayerDelegate {
         view.backgroundColor = .black
         view.isMultipleTouchEnabled = true
         
-        setupVideoPlayer()
-        setupNetwork()
+        // Hiện bảng chọn chế độ ngay khi mở App
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.promptConnectionMode()
+        }
     }
     
-    func setupNetwork() {
-        // Kết nối tới IP localhost qua cổng 8765 do pymobiledevice3 mở
-        let endpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: 8765)
+    // Giao diện chọn chế độ USB hoặc Wi-Fi
+    func promptConnectionMode() {
+        let alert = UIAlertController(title: "Chế Độ Kết Nối", message: "Bạn muốn kết nối qua phương thức nào?", preferredStyle: .alert)
+        
+        alert.addAction(UIAlertAction(title: "📱 Cáp USB (Hotspot)", style: .default, handler: { _ in
+            self.promptForIP(defaultPrefix: "172.20.10.")
+        }))
+        
+        alert.addAction(UIAlertAction(title: "📶 Wi-Fi (LAN)", style: .default, handler: { _ in
+            self.promptForIP(defaultPrefix: "192.168.")
+        }))
+        
+        present(alert, animated: true)
+    }
+    
+    func promptForIP(defaultPrefix: String) {
+        let alert = UIAlertController(title: "Nhập IP Máy Tính", message: "Xem IP hiển thị trên cửa sổ Tool PC", preferredStyle: .alert)
+        alert.addTextField { textField in
+            textField.keyboardType = .decimalPad
+            let saved = UserDefaults.standard.string(forKey: "LastPCIP")
+            // Nếu có IP lưu cũ thì hiện lại, nếu không thì hiện gợi ý theo chế độ
+            textField.text = (saved != nil && saved!.starts(with: defaultPrefix.prefix(5))) ? saved : defaultPrefix
+        }
+        
+        alert.addAction(UIAlertAction(title: "Quay lại", style: .cancel, handler: { [weak self] _ in
+            self?.promptConnectionMode()
+        }))
+        
+        alert.addAction(UIAlertAction(title: "Bắt đầu", style: .default, handler: { [weak self] _ in
+            let ip = alert.textFields?.first?.text ?? ""
+            UserDefaults.standard.set(ip, forKey: "LastPCIP")
+            self?.startConnection(to: ip)
+        }))
+        
+        present(alert, animated: true)
+    }
+    
+    func startConnection(to ip: String) {
+        setupNetwork(pcIP: ip)
+        setupVideoPlayer()
+    }
+    
+    func setupNetwork(pcIP: String) {
+        let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(pcIP), port: 8765)
         connection = NWConnection(to: endpoint, using: .tcp)
         
         connection?.stateUpdateHandler = { [weak self] state in
             switch state {
             case .ready:
-                print("Đã nối mạng TCP tới PC")
+                print("Đã nối TCP tới PC")
             case .failed(_):
-                // Thử lại nếu mất mạng
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                    self?.setupNetwork()
+                DispatchQueue.main.async {
+                    self?.promptConnectionMode() // Lỗi mạng thì cho chọn lại
                 }
             default: break
             }
@@ -42,15 +84,16 @@ class ViewController: UIViewController, VLCMediaPlayerDelegate {
     }
     
     func setupVideoPlayer() {
-        mediaPlayer = VLCMediaPlayer()
-        mediaPlayer.delegate = self
-        mediaPlayer.drawable = self.view
+        if mediaPlayer == nil {
+            mediaPlayer = VLCMediaPlayer()
+            mediaPlayer.delegate = self
+            mediaPlayer.drawable = self.view
+        }
         
-        // Nhận luồng Video H264 siêu mượt qua cổng 12345
-        let url = URL(string: "udp://@127.0.0.1:12345")!
+        // Nhận video gửi tới
+        let url = URL(string: "udp://@0.0.0.0:12345")!
         let media = VLCMedia(url: url)
         
-        // Ép VLC giảm độ trễ (delay) xuống thấp nhất có thể bằng Dictionary
         let options: [AnyHashable: Any] = [
             "network-caching": 50,
             "clock-jitter": 0,
@@ -62,7 +105,7 @@ class ViewController: UIViewController, VLCMediaPlayerDelegate {
         mediaPlayer.play()
     }
     
-    // XỬ LÝ CHẠM
+    // ================= XỬ LÝ CHẠM =================
     func getTouchId(for touch: UITouch) -> Int {
         if let id = touchMap[touch] { return id }
         let newId = availableIds.removeFirst()
@@ -89,12 +132,9 @@ class ViewController: UIViewController, VLCMediaPlayerDelegate {
             let location = touch.location(in: view)
             
             touchesPayload.append([
-                "id": id,
-                "action": action,
-                "x": location.x / screenWidth,
-                "y": location.y / screenHeight
+                "id": id, "action": action,
+                "x": location.x / screenWidth, "y": location.y / screenHeight
             ])
-            
             if action == "end" { releaseTouchId(for: touch) }
         }
         
