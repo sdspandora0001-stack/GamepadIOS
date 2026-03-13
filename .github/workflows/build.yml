@@ -1,5 +1,8 @@
 name: Build iOS App
 on: [push, workflow_dispatch]
+env:
+  # Ép GitHub dùng Node 24 để sửa cảnh báo Warning Node.js 20
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 jobs:
   build:
     runs-on: macos-latest
