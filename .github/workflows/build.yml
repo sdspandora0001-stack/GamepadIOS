@@ -1,0 +1,32 @@
+name: Build iOS App
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install XcodeGen
+        run: brew install xcodegen
+        
+      - name: Generate Xcode Project
+        run: xcodegen generate
+        
+      - name: Install CocoaPods
+        run: pod install
+        
+      - name: Build Unsigned IPA
+        run: |
+          # Build App không cần chữ ký (Sideloadly sẽ tự ký sau)
+          xcodebuild -workspace GamepadIOS.xcworkspace -scheme GamepadIOS -configuration Release -sdk iphoneos -archivePath $PWD/build/GamepadIOS.xcarchive clean archive CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
+          
+          # Đóng gói thành file .ipa
+          mkdir -p Payload
+          cp -r build/GamepadIOS.xcarchive/Products/Applications/GamepadIOS.app Payload/
+          zip -r GamepadIOS.ipa Payload
+          
+      - name: Upload IPA
+        uses: actions/upload-artifact@v3
+        with:
+          name: GamepadIOS-App
+          path: GamepadIOS.ipa
