@@ -20,29 +20,40 @@ class ViewController: UIViewController {
     var spsData: [UInt8]?
     var ppsData: [UInt8]?
     
-    // Giao diện nhập IP Tự chế (Chống phá vỡ Fullscreen)
-    let customAlertView = UIView()
+    // Giao diện nhập IP
+    let setupContainerView = UIView()
     let ipTextField = UITextField()
     
-    // ==========================================
-    // CẤU HÌNH FULLSCREEN TUYỆT ĐỐI VÀ CHỐNG ĐƠ MÉP
-    // ==========================================
-    override var prefersStatusBarHidden: Bool { return true }
-    override var prefersHomeIndicatorAutoHidden: Bool { return true }
-    override var shouldAutorotate: Bool { return true }
-    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { return .landscape }
+    // Biến trạng thái kiểm soát Toàn màn hình
+    var isStreaming = false
     
-    // Lệnh này giúp mép màn hình nhận cảm ứng ngay lập tức thay vì bắt vuốt 2 lần
-    override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge { return .all }
+    // ==========================================
+    // CẤU HÌNH HIỂN THỊ ĐỘNG (TỰ ĐỘNG FULLSCREEN KHI STREAM)
+    // ==========================================
+    override var prefersStatusBarHidden: Bool {
+        return isStreaming // Ẩn khi đang stream, hiện khi ở màn hình nhập IP
+    }
+    
+    override var prefersHomeIndicatorAutoHidden: Bool {
+        return isStreaming // Ẩn thanh Home mỏng ở dưới đáy (nếu máy có) khi đang stream
+    }
+    
+    override var shouldAutorotate: Bool { 
+        return true 
+    }
+    
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { 
+        return .landscape 
+    }
+    
+    override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge { 
+        return isStreaming ? .all : [] // Chống đơ mép màn hình khi đang chơi
+    }
     
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
         view.isMultipleTouchEnabled = true
-        
-        // Ép iOS dọn sạch các thanh công cụ
-        setNeedsStatusBarAppearanceUpdate()
-        setNeedsUpdateOfHomeIndicatorAutoHidden()
         
         // Setup Video Layer
         videoLayer.frame = view.bounds
@@ -55,47 +66,41 @@ class ViewController: UIViewController {
         CMTimebaseSetRate(videoLayer.controlTimebase!, rate: 1.0)
         view.layer.addSublayer(videoLayer)
         
-        // THÊM: GESTURE VUỐT 3 NGÓN CHÍNH CHỦ CỦA APPLE
-        let swipeDown = UISwipeGestureRecognizer(target: self, action: #selector(handle3FingerSwipe))
-        swipeDown.numberOfTouchesRequired = 3
-        swipeDown.direction = .down
-        view.addGestureRecognizer(swipeDown)
-        
         // Vẽ bảng nhập IP
-        setupCustomAlertUI()
+        setupInitialUI()
     }
     
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         videoLayer.frame = view.bounds
-        customAlertView.center = view.center
+        setupContainerView.center = view.center
     }
     
     // ==========================================
-    // GIAO DIỆN NHẬP IP TỰ CHẾ (Không dùng UIAlertController)
+    // GIAO DIỆN NHẬP IP BÌNH THƯỜNG
     // ==========================================
-    func setupCustomAlertUI() {
-        customAlertView.frame = CGRect(x: 0, y: 0, width: 320, height: 180)
-        customAlertView.backgroundColor = UIColor(white: 0.15, alpha: 0.95)
-        customAlertView.layer.cornerRadius = 15
-        customAlertView.layer.shadowColor = UIColor.black.cgColor
-        customAlertView.layer.shadowOpacity = 0.5
-        customAlertView.layer.shadowOffset = CGSize(width: 0, height: 5)
-        view.addSubview(customAlertView)
+    func setupInitialUI() {
+        setupContainerView.frame = CGRect(x: 0, y: 0, width: 320, height: 180)
+        setupContainerView.backgroundColor = UIColor(white: 0.15, alpha: 0.95)
+        setupContainerView.layer.cornerRadius = 15
+        setupContainerView.layer.shadowColor = UIColor.black.cgColor
+        setupContainerView.layer.shadowOpacity = 0.5
+        setupContainerView.layer.shadowOffset = CGSize(width: 0, height: 5)
+        view.addSubview(setupContainerView)
         
         let titleLbl = UILabel(frame: CGRect(x: 20, y: 15, width: 280, height: 30))
         titleLbl.text = "Nhập IP Máy Tính"
         titleLbl.textColor = .white
         titleLbl.font = UIFont.boldSystemFont(ofSize: 18)
         titleLbl.textAlignment = .center
-        customAlertView.addSubview(titleLbl)
+        setupContainerView.addSubview(titleLbl)
         
         let subLbl = UILabel(frame: CGRect(x: 20, y: 45, width: 280, height: 20))
         subLbl.text = "(Cắm cáp USB & Bật Hotspot)"
         subLbl.textColor = .lightGray
         subLbl.font = UIFont.systemFont(ofSize: 13)
         subLbl.textAlignment = .center
-        customAlertView.addSubview(subLbl)
+        setupContainerView.addSubview(subLbl)
         
         ipTextField.frame = CGRect(x: 30, y: 75, width: 260, height: 40)
         ipTextField.backgroundColor = .white
@@ -104,15 +109,15 @@ class ViewController: UIViewController {
         ipTextField.textAlignment = .center
         ipTextField.layer.cornerRadius = 8
         ipTextField.text = UserDefaults.standard.string(forKey: "LastPCIP") ?? "172.20.10."
-        customAlertView.addSubview(ipTextField)
+        setupContainerView.addSubview(ipTextField)
         
         let btn = UIButton(frame: CGRect(x: 85, y: 125, width: 150, height: 40))
-        btn.setTitle("Bắt đầu kết nối", for: .normal)
+        btn.setTitle("Bắt đầu", for: .normal)
         btn.backgroundColor = UIColor.systemBlue
         btn.layer.cornerRadius = 8
         btn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 16)
         btn.addTarget(self, action: #selector(btnStartClicked), for: .touchUpInside)
-        customAlertView.addSubview(btn)
+        setupContainerView.addSubview(btn)
     }
     
     @objc func btnStartClicked() {
@@ -120,25 +125,40 @@ class ViewController: UIViewController {
         UserDefaults.standard.set(ip, forKey: "LastPCIP")
         ipTextField.resignFirstResponder()
         
-        // Tàng hình bảng nhập IP
+        // Chuyển sang trạng thái Streaming
+        isStreaming = true
+        
+        // Tạo hiệu ứng tàng hình bảng IP và làm biến mất thanh trạng thái (Fullscreen)
         UIView.animate(withDuration: 0.3) {
-            self.customAlertView.alpha = 0
+            self.setupContainerView.alpha = 0
+            self.setNeedsStatusBarAppearanceUpdate()
+            self.setNeedsUpdateOfHomeIndicatorAutoHidden()
         } completion: { _ in
-            self.customAlertView.isHidden = true
+            self.setupContainerView.isHidden = true
             self.startConnection(to: ip)
         }
     }
     
-    // Xử lý sự kiện vuốt 3 ngón (Hiện lại bảng IP)
-    @objc func handle3FingerSwipe() {
-        self.customAlertView.isHidden = false
-        UIView.animate(withDuration: 0.3) {
-            self.customAlertView.alpha = 1
+    // Hàm gọi khi mất kết nối (Đưa máy về lại giao diện ban đầu)
+    func showSetupScreen() {
+        DispatchQueue.main.async {
+            self.isStreaming = false
+            self.setupContainerView.isHidden = false
+            
+            // Hủy kết nối mạng hiện tại
+            self.touchConnection?.cancel()
+            self.videoConnection?.cancel()
+            
+            UIView.animate(withDuration: 0.3) {
+                self.setupContainerView.alpha = 1
+                self.setNeedsStatusBarAppearanceUpdate()
+                self.setNeedsUpdateOfHomeIndicatorAutoHidden()
+            }
         }
     }
     
     // ==========================================
-    // KẾT NỐI MẠNG & GIẢI MÃ VIDEO
+    // KẾT NỐI MẠNG & GIẢI MÃ VIDEO (H.264 Hardware)
     // ==========================================
     func startConnection(to ip: String) {
         setupNetwork(pcIP: ip)
@@ -150,14 +170,13 @@ class ViewController: UIViewController {
         touchConnection = NWConnection(to: endpoint, using: .tcp)
         touchConnection?.stateUpdateHandler = { [weak self] state in
             if case .failed(_) = state { 
-                DispatchQueue.main.async { self?.handle3FingerSwipe() } // Lỗi mạng thì hiện lại bảng
+                self?.showSetupScreen() 
             }
         }
         touchConnection?.start(queue: queue)
     }
     
     func setupH264Stream(pcIP: String) {
-        videoConnection?.cancel()
         let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(pcIP), port: 12345)
         
         let params = NWParameters.tcp
@@ -168,18 +187,31 @@ class ViewController: UIViewController {
         videoConnection = NWConnection(to: endpoint, using: params)
         videoConnection?.stateUpdateHandler = { [weak self] state in
             if case .ready = state { self?.receiveRawH264Data() }
+            if case .failed(_) = state { self?.showSetupScreen() }
         }
         videoConnection?.start(queue: videoQueue)
     }
     
     func receiveRawH264Data() {
         videoConnection?.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
-            guard let self = self, let data = data, error == nil else { return }
+            guard let self = self else { return }
             
-            self.videoBuffer.append(data)
-            self.extractNALUnits()
+            if let error = error {
+                print("Lỗi nhận Video: \(error)")
+                self.showSetupScreen()
+                return
+            }
             
-            if !isComplete { self.receiveRawH264Data() }
+            if let data = data {
+                self.videoBuffer.append(data)
+                self.extractNALUnits()
+            }
+            
+            if !isComplete { 
+                self.receiveRawH264Data() 
+            } else {
+                self.showSetupScreen()
+            }
         }
     }
     
@@ -293,7 +325,8 @@ class ViewController: UIViewController {
     }
     
     func sendTouches(touches: Set<UITouch>, action: String) {
-        guard touchConnection?.state == .ready else { return }
+        // CHỈ GỬI CẢM ỨNG KHI ĐANG TRONG TRẠNG THÁI STREAM (ẨN BẢNG IP)
+        guard isStreaming, touchConnection?.state == .ready else { return }
         
         let screenWidth = view.bounds.width
         let screenHeight = view.bounds.height
