@@ -1,5 +1,6 @@
 import UIKit
 import Network
+import CoreGraphics
 
 class ViewController: UIViewController {
     
@@ -12,28 +13,24 @@ class ViewController: UIViewController {
     var touchMap = [UITouch: Int]()
     var availableIds = Array(0...9)
     
-    let imageView = UIImageView()
+    // Dùng CALayer thay vì UIImageView để hiển thị pixel thô trực tiếp
+    let videoLayer = CALayer()
     
     // ==========================================
-    // 1. CẤU HÌNH HIỂN THỊ (SỬA LỖI MÀN HÌNH VÀ XOAY)
+    // 1. CẤU HÌNH HIỂN THỊ TRÀN MÀN HÌNH TỐI ĐA
     // ==========================================
-    
-    // Ẩn hoàn toàn thanh trạng thái (Pin, Giờ, Sóng...)
     override var prefersStatusBarHidden: Bool {
         return true
     }
     
-    // Ẩn thanh Home ảo ở cạnh dưới (nếu có)
     override var prefersHomeIndicatorAutoHidden: Bool {
         return true
     }
     
-    // Cho phép máy tự động xoay
     override var shouldAutorotate: Bool {
         return true
     }
     
-    // Ép chế độ xoay: Chỉ cho phép xoay ngang (trái hoặc phải) giống Game
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
         return .landscape
     }
@@ -43,36 +40,35 @@ class ViewController: UIViewController {
         view.backgroundColor = .black
         view.isMultipleTouchEnabled = true
         
-        imageView.frame = view.bounds
-        imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        imageView.contentMode = .scaleToFill
-        view.addSubview(imageView)
-        view.sendSubviewToBack(imageView)
+        // Ép iOS cập nhật lại giao diện, ép mất thanh trạng thái
+        setNeedsStatusBarAppearanceUpdate()
+        setNeedsUpdateOfHomeIndicatorAutoHidden()
+        
+        // Cấu hình Layer hứng ảnh thô
+        videoLayer.frame = view.bounds
+        videoLayer.contentsGravity = .resizeAspectFill
+        view.layer.addSublayer(videoLayer)
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            self.promptConnectionMode()
+            self.promptForIP()
         }
+    }
+    
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        videoLayer.frame = view.bounds
     }
     
     // ==========================================
     // 2. GIAO DIỆN KẾT NỐI
     // ==========================================
-    func promptConnectionMode() {
-        let alert = UIAlertController(title: "Chế Độ Kết Nối", message: "Bạn muốn kết nối qua phương thức nào?", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "📱 Cáp USB (Hotspot)", style: .default, handler: { _ in self.promptForIP(defaultPrefix: "172.20.10.") }))
-        alert.addAction(UIAlertAction(title: "📶 Wi-Fi (LAN)", style: .default, handler: { _ in self.promptForIP(defaultPrefix: "192.168.") }))
-        present(alert, animated: true)
-    }
-    
-    func promptForIP(defaultPrefix: String) {
-        let alert = UIAlertController(title: "Nhập IP Máy Tính", message: "Xem IP hiển thị trên cửa sổ Tool PC", preferredStyle: .alert)
+    func promptForIP() {
+        let alert = UIAlertController(title: "Nhập IP Máy Tính", message: "Kết nối qua Cáp USB (vd: 172.20.10.x)", preferredStyle: .alert)
         alert.addTextField { textField in
             textField.keyboardType = .decimalPad
-            let saved = UserDefaults.standard.string(forKey: "LastPCIP")
-            textField.text = (saved != nil && saved!.starts(with: defaultPrefix.prefix(5))) ? saved : defaultPrefix
+            textField.text = UserDefaults.standard.string(forKey: "LastPCIP") ?? "172.20.10."
         }
         
-        alert.addAction(UIAlertAction(title: "Quay lại", style: .cancel, handler: { [weak self] _ in self?.promptConnectionMode() }))
         alert.addAction(UIAlertAction(title: "Bắt đầu", style: .default, handler: { [weak self] _ in
             let ip = alert.textFields?.first?.text ?? ""
             UserDefaults.standard.set(ip, forKey: "LastPCIP")
@@ -83,22 +79,22 @@ class ViewController: UIViewController {
     
     func startConnection(to ip: String) {
         setupNetwork(pcIP: ip)
-        setupImageStream(pcIP: ip)
+        setupRawImageStream(pcIP: ip)
     }
     
     func setupNetwork(pcIP: String) {
         let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(pcIP), port: 8765)
         touchConnection = NWConnection(to: endpoint, using: .tcp)
         touchConnection?.stateUpdateHandler = { [weak self] state in
-            if case .failed(_) = state { DispatchQueue.main.async { self?.promptConnectionMode() } }
+            if case .failed(_) = state { DispatchQueue.main.async { self?.promptForIP() } }
         }
         touchConnection?.start(queue: queue)
     }
     
     // ==========================================
-    // 3. NHẬN ẢNH SIÊU TỐC TỪ PC
+    // 3. NHẬN PIXEL THÔ VÀ ĐỔ RA MÀN HÌNH (0% CPU DECODE)
     // ==========================================
-    func setupImageStream(pcIP: String) {
+    func setupRawImageStream(pcIP: String) {
         videoConnection?.cancel()
         let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(pcIP), port: 12345)
         
@@ -110,36 +106,58 @@ class ViewController: UIViewController {
         videoConnection = NWConnection(to: endpoint, using: params)
         videoConnection?.stateUpdateHandler = { [weak self] state in
             if case .ready = state {
-                self?.receiveNextFrame()
+                self?.receiveNextRawFrame()
             }
         }
         videoConnection?.start(queue: videoQueue)
     }
     
-    func receiveNextFrame() {
+    func receiveNextRawFrame() {
         guard let connection = videoConnection else { return }
         
+        // Đọc 4 byte để lấy dung lượng của mảng pixel
         connection.receive(minimumIncompleteLength: 4, maximumLength: 4) { [weak self] data, _, _, error in
             guard let self = self, let data = data, data.count == 4, error == nil else { return }
             
             let length = UInt32(bigEndian: data.withUnsafeBytes { $0.load(as: UInt32.self) })
             
-            connection.receive(minimumIncompleteLength: Int(length), maximumLength: Int(length)) { imgData, _, _, _ in
-                // BẢO BỐI AUTORELEASEPOOL: Xóa sạch bộ nhớ ngay sau khi dán ảnh lên, chống tràn RAM gây giật lag trên iPhone 7
-                autoreleasepool {
-                    if let imgData = imgData, let image = UIImage(data: imgData) {
-                        DispatchQueue.main.async {
-                            self.imageView.image = image
-                        }
-                    }
+            // Đọc mảng pixel BGRA thô
+            connection.receive(minimumIncompleteLength: Int(length), maximumLength: Int(length)) { rawData, _, _, _ in
+                if let rawData = rawData {
+                    self.renderRawPixels(data: rawData)
                 }
-                self.receiveNextFrame()
+                self.receiveNextRawFrame()
+            }
+        }
+    }
+    
+    // Hàm này biến mảng Byte thô thành hình ảnh mà KHÔNG CẦN DECODE JPEG
+    func renderRawPixels(data: Data) {
+        // Kích thước chuẩn được hạ xuống để vừa với băng thông cáp Lightning (USB 2.0)
+        let width = 640
+        let height = 360
+        let bytesPerRow = width * 4 // Mỗi pixel 4 byte (B, G, R, A)
+        
+        // Hệ màu tương thích trực tiếp với dữ liệu mss xuất ra từ Windows
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.noneSkipFirst.rawValue
+        
+        guard let provider = CGDataProvider(data: data as CFData) else { return }
+        
+        if let cgImage = CGImage(width: width, height: height,
+                                 bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: bytesPerRow,
+                                 space: colorSpace, bitmapInfo: CGBitmapInfo(rawValue: bitmapInfo),
+                                 provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent) {
+            
+            DispatchQueue.main.async {
+                // Đổ thẳng vào Layer màn hình (Giống hệt cách màn hình máy tính hoạt động)
+                self.videoLayer.contents = cgImage
             }
         }
     }
     
     // ==========================================
-    // 4. XỬ LÝ CHẠM
+    // 4. XỬ LÝ CHẠM ĐA ĐIỂM
     // ==========================================
     func getTouchId(for touch: UITouch) -> Int {
         if let id = touchMap[touch] { return id }
