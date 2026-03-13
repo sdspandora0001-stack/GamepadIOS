@@ -14,31 +14,37 @@ class ViewController: UIViewController {
     var touchMap = [UITouch: Int]()
     var availableIds = Array(0...9)
     
-    // Lớp hiển thị Video bằng Phần cứng của Apple (0 Delay)
     var videoLayer = AVSampleBufferDisplayLayer()
-    
-    // Buffer và biến dùng cho VideoToolbox
     var videoBuffer = Data()
     var formatDesc: CMVideoFormatDescription?
     var spsData: [UInt8]?
     var ppsData: [UInt8]?
     
-    // Biến quản lý chế độ Toàn màn hình
-    var isFullscreen = false
-    var swipe3StartY: CGFloat = 0
-    var isSwiping3Down = false
+    // Giao diện nhập IP Tự chế (Chống phá vỡ Fullscreen)
+    let customAlertView = UIView()
+    let ipTextField = UITextField()
     
-    override var prefersStatusBarHidden: Bool { return isFullscreen }
-    override var prefersHomeIndicatorAutoHidden: Bool { return isFullscreen }
+    // ==========================================
+    // CẤU HÌNH FULLSCREEN TUYỆT ĐỐI VÀ CHỐNG ĐƠ MÉP
+    // ==========================================
+    override var prefersStatusBarHidden: Bool { return true }
+    override var prefersHomeIndicatorAutoHidden: Bool { return true }
     override var shouldAutorotate: Bool { return true }
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { return .landscape }
+    
+    // Lệnh này giúp mép màn hình nhận cảm ứng ngay lập tức thay vì bắt vuốt 2 lần
+    override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge { return .all }
     
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
         view.isMultipleTouchEnabled = true
         
-        // Cài đặt lớp hiển thị Video phần cứng
+        // Ép iOS dọn sạch các thanh công cụ
+        setNeedsStatusBarAppearanceUpdate()
+        setNeedsUpdateOfHomeIndicatorAutoHidden()
+        
+        // Setup Video Layer
         videoLayer.frame = view.bounds
         videoLayer.videoGravity = .resizeAspectFill
         
@@ -47,39 +53,92 @@ class ViewController: UIViewController {
         videoLayer.controlTimebase = controlTimebase
         CMTimebaseSetTime(videoLayer.controlTimebase!, time: CMTimeMake(value: 0, timescale: 1))
         CMTimebaseSetRate(videoLayer.controlTimebase!, rate: 1.0)
-        
         view.layer.addSublayer(videoLayer)
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            self.promptForIP()
-        }
+        // THÊM: GESTURE VUỐT 3 NGÓN CHÍNH CHỦ CỦA APPLE
+        let swipeDown = UISwipeGestureRecognizer(target: self, action: #selector(handle3FingerSwipe))
+        swipeDown.numberOfTouchesRequired = 3
+        swipeDown.direction = .down
+        view.addGestureRecognizer(swipeDown)
+        
+        // Vẽ bảng nhập IP
+        setupCustomAlertUI()
     }
     
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         videoLayer.frame = view.bounds
+        customAlertView.center = view.center
     }
     
     // ==========================================
-    // 1. BẢNG NHẬP IP NHƯ CŨ
+    // GIAO DIỆN NHẬP IP TỰ CHẾ (Không dùng UIAlertController)
     // ==========================================
-    func promptForIP() {
-        let alert = UIAlertController(title: "Nhập IP Máy Tính", message: "Kết nối qua Cáp USB (vd: 172.20.10.x)", preferredStyle: .alert)
-        alert.addTextField { textField in
-            textField.keyboardType = .decimalPad
-            textField.text = UserDefaults.standard.string(forKey: "LastPCIP") ?? "172.20.10."
-        }
+    func setupCustomAlertUI() {
+        customAlertView.frame = CGRect(x: 0, y: 0, width: 320, height: 180)
+        customAlertView.backgroundColor = UIColor(white: 0.15, alpha: 0.95)
+        customAlertView.layer.cornerRadius = 15
+        customAlertView.layer.shadowColor = UIColor.black.cgColor
+        customAlertView.layer.shadowOpacity = 0.5
+        customAlertView.layer.shadowOffset = CGSize(width: 0, height: 5)
+        view.addSubview(customAlertView)
         
-        alert.addAction(UIAlertAction(title: "Bắt đầu", style: .default, handler: { [weak self] _ in
-            let ip = alert.textFields?.first?.text ?? ""
-            UserDefaults.standard.set(ip, forKey: "LastPCIP")
-            self?.startConnection(to: ip)
-        }))
-        present(alert, animated: true)
+        let titleLbl = UILabel(frame: CGRect(x: 20, y: 15, width: 280, height: 30))
+        titleLbl.text = "Nhập IP Máy Tính"
+        titleLbl.textColor = .white
+        titleLbl.font = UIFont.boldSystemFont(ofSize: 18)
+        titleLbl.textAlignment = .center
+        customAlertView.addSubview(titleLbl)
+        
+        let subLbl = UILabel(frame: CGRect(x: 20, y: 45, width: 280, height: 20))
+        subLbl.text = "(Cắm cáp USB & Bật Hotspot)"
+        subLbl.textColor = .lightGray
+        subLbl.font = UIFont.systemFont(ofSize: 13)
+        subLbl.textAlignment = .center
+        customAlertView.addSubview(subLbl)
+        
+        ipTextField.frame = CGRect(x: 30, y: 75, width: 260, height: 40)
+        ipTextField.backgroundColor = .white
+        ipTextField.textColor = .black
+        ipTextField.keyboardType = .decimalPad
+        ipTextField.textAlignment = .center
+        ipTextField.layer.cornerRadius = 8
+        ipTextField.text = UserDefaults.standard.string(forKey: "LastPCIP") ?? "172.20.10."
+        customAlertView.addSubview(ipTextField)
+        
+        let btn = UIButton(frame: CGRect(x: 85, y: 125, width: 150, height: 40))
+        btn.setTitle("Bắt đầu kết nối", for: .normal)
+        btn.backgroundColor = UIColor.systemBlue
+        btn.layer.cornerRadius = 8
+        btn.titleLabel?.font = UIFont.boldSystemFont(ofSize: 16)
+        btn.addTarget(self, action: #selector(btnStartClicked), for: .touchUpInside)
+        customAlertView.addSubview(btn)
+    }
+    
+    @objc func btnStartClicked() {
+        let ip = ipTextField.text ?? ""
+        UserDefaults.standard.set(ip, forKey: "LastPCIP")
+        ipTextField.resignFirstResponder()
+        
+        // Tàng hình bảng nhập IP
+        UIView.animate(withDuration: 0.3) {
+            self.customAlertView.alpha = 0
+        } completion: { _ in
+            self.customAlertView.isHidden = true
+            self.startConnection(to: ip)
+        }
+    }
+    
+    // Xử lý sự kiện vuốt 3 ngón (Hiện lại bảng IP)
+    @objc func handle3FingerSwipe() {
+        self.customAlertView.isHidden = false
+        UIView.animate(withDuration: 0.3) {
+            self.customAlertView.alpha = 1
+        }
     }
     
     // ==========================================
-    // 2. KẾT NỐI VÀ XỬ LÝ VIDEOTOOLBOX H264
+    // KẾT NỐI MẠNG & GIẢI MÃ VIDEO
     // ==========================================
     func startConnection(to ip: String) {
         setupNetwork(pcIP: ip)
@@ -90,7 +149,9 @@ class ViewController: UIViewController {
         let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(pcIP), port: 8765)
         touchConnection = NWConnection(to: endpoint, using: .tcp)
         touchConnection?.stateUpdateHandler = { [weak self] state in
-            if case .failed(_) = state { DispatchQueue.main.async { self?.promptForIP() } }
+            if case .failed(_) = state { 
+                DispatchQueue.main.async { self?.handle3FingerSwipe() } // Lỗi mạng thì hiện lại bảng
+            }
         }
         touchConnection?.start(queue: queue)
     }
@@ -215,7 +276,7 @@ class ViewController: UIViewController {
     }
     
     // ==========================================
-    // 3. XỬ LÝ CHẠM ĐA ĐIỂM & GESTURE 3 NGÓN
+    // CẢM ỨNG ĐA ĐIỂM
     // ==========================================
     func getTouchId(for touch: UITouch) -> Int {
         if let id = touchMap[touch] { return id }
@@ -231,28 +292,7 @@ class ViewController: UIViewController {
         }
     }
     
-    func sendTouches(touches: Set<UITouch>, event: UIEvent?, action: String) {
-        // --- XỬ LÝ THAO TÁC VUỐT 3 NGÓN XUỐNG ĐỂ FULLSCREEN ---
-        if let allTouches = event?.allTouches, allTouches.count == 3 {
-            let avgY = allTouches.reduce(0) { $0 + $1.location(in: view).y } / 3.0
-            if action == "start" {
-                swipe3StartY = avgY
-                isSwiping3Down = false
-            } else if action == "move" {
-                if avgY - swipe3StartY > 80 { isSwiping3Down = true } // Vuốt xuống 80px
-            } else if action == "end" {
-                if isSwiping3Down {
-                    isFullscreen.toggle()
-                    UIView.animate(withDuration: 0.3) {
-                        self.setNeedsStatusBarAppearanceUpdate()
-                        self.setNeedsUpdateOfHomeIndicatorAutoHidden()
-                    }
-                    isSwiping3Down = false
-                }
-            }
-        }
-        // --------------------------------------------------------
-
+    func sendTouches(touches: Set<UITouch>, action: String) {
         guard touchConnection?.state == .ready else { return }
         
         let screenWidth = view.bounds.width
@@ -275,8 +315,8 @@ class ViewController: UIViewController {
         }
     }
     
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) { sendTouches(touches: touches, event: event, action: "start") }
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) { sendTouches(touches: touches, event: event, action: "move") }
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { sendTouches(touches: touches, event: event, action: "end") }
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { sendTouches(touches: touches, event: event, action: "end") }
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) { sendTouches(touches: touches, action: "start") }
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) { sendTouches(touches: touches, action: "move") }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { sendTouches(touches: touches, action: "end") }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { sendTouches(touches: touches, action: "end") }
 }
