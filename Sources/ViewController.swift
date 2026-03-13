@@ -50,12 +50,13 @@ class ViewController: UIViewController, VLCMediaPlayerDelegate {
         let url = URL(string: "udp://@127.0.0.1:12345")!
         let media = VLCMedia(url: url)
         
-        // Ép VLC giảm độ trễ (delay) xuống thấp nhất có thể
-        media.addOptions([
-            "--network-caching=50",
-            "--clock-jitter=0",
-            "--drop-late-frames"
-        ])
+        // Ép VLC giảm độ trễ (delay) xuống thấp nhất có thể bằng Dictionary
+        let options: [AnyHashable: Any] = [
+            "network-caching": 50,
+            "clock-jitter": 0,
+            "drop-late-frames": ""
+        ]
+        media.addOptions(options)
         
         mediaPlayer.media = media
         mediaPlayer.play()
