@@ -20,9 +20,10 @@ class ViewController: UIViewController {
     var spsData: [UInt8]?
     var ppsData: [UInt8]?
     
-    // Giao diện nhập IP
+    // Giao diện
     let setupContainerView = UIView()
     let ipTextField = UITextField()
+    let exitButton = UIButton() // Nút thoát an toàn khi đang Stream
     
     // Biến trạng thái kiểm soát Toàn màn hình & Xoay máy
     var isStreaming = false
@@ -31,7 +32,7 @@ class ViewController: UIViewController {
     // CẤU HÌNH HIỂN THỊ: CHỈ TRÀN VIỀN KHI STREAMING
     // ==========================================
     override var prefersStatusBarHidden: Bool {
-        return isStreaming // Ẩn khi đang stream, hiện khi ở màn hình dọc
+        return isStreaming
     }
     
     override var prefersHomeIndicatorAutoHidden: Bool {
@@ -42,7 +43,6 @@ class ViewController: UIViewController {
         return true 
     }
     
-    // CHÌA KHÓA: Nếu đang stream thì Ngang, nếu chưa stream thì Dọc
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { 
         return isStreaming ? .landscape : .portrait
     }
@@ -56,7 +56,9 @@ class ViewController: UIViewController {
         view.backgroundColor = .black
         view.isMultipleTouchEnabled = true
         
-        // Chạm ra ngoài để cất bàn phím
+        // Theo dõi khi App bị bảng xin quyền đè lên rồi quay lại
+        NotificationCenter.default.addObserver(self, selector: #selector(appBecameActive), name: UIApplication.didBecomeActiveNotification, object: nil)
+        
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
         view.addGestureRecognizer(tapGesture)
         
@@ -72,17 +74,27 @@ class ViewController: UIViewController {
         view.layer.addSublayer(videoLayer)
         
         setupInitialUI()
+        setupExitButton()
     }
     
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         videoLayer.frame = view.bounds
-        // Đẩy khung nhập IP lên cao hơn tâm màn hình để không bị bàn phím che
         setupContainerView.center = CGPoint(x: view.bounds.midX, y: view.bounds.midY - 80)
     }
     
     @objc func dismissKeyboard() {
         view.endEditing(true)
+    }
+    
+    // Hàm này cứu cánh khi bảng Cấp Quyền tắt đi, ép màn hình Fullscreen trở lại
+    @objc func appBecameActive() {
+        if isStreaming {
+            if #available(iOS 16.0, *) { self.setNeedsUpdateOfSupportedInterfaceOrientations() }
+            forceOrientation(to: .landscape, orientationValue: .landscapeRight)
+            setNeedsStatusBarAppearanceUpdate()
+            setNeedsUpdateOfHomeIndicatorAutoHidden()
+        }
     }
     
     // ==========================================
@@ -129,6 +141,18 @@ class ViewController: UIViewController {
         setupContainerView.addSubview(btn)
     }
     
+    func setupExitButton() {
+        exitButton.frame = CGRect(x: 20, y: 20, width: 40, height: 40)
+        exitButton.setTitle("X", for: .normal)
+        exitButton.setTitleColor(.white, for: .normal)
+        exitButton.backgroundColor = UIColor(white: 0.2, alpha: 0.6)
+        exitButton.layer.cornerRadius = 20
+        exitButton.titleLabel?.font = UIFont.boldSystemFont(ofSize: 20)
+        exitButton.isHidden = true // Giấu đi lúc đầu
+        exitButton.addTarget(self, action: #selector(showSetupScreen), for: .touchUpInside)
+        view.addSubview(exitButton)
+    }
+    
     // ==========================================
     // HÀM ÉP XOAY MÀN HÌNH
     // ==========================================
@@ -136,7 +160,7 @@ class ViewController: UIViewController {
         if #available(iOS 16.0, *) {
             guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
             windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: orientationMask)) { error in
-                print("Lỗi xoay màn hình: \(error)")
+                print("Lỗi xoay: \(error)")
             }
         } else {
             UIDevice.current.setValue(orientationValue.rawValue, forKey: "orientation")
@@ -149,33 +173,32 @@ class ViewController: UIViewController {
         UserDefaults.standard.set(ip, forKey: "LastPCIP")
         dismissKeyboard()
         
-        // Chuyển sang trạng thái Streaming
         isStreaming = true
         
-        // 1. Ép máy xoay Ngang
+        if #available(iOS 16.0, *) { self.setNeedsUpdateOfSupportedInterfaceOrientations() }
         forceOrientation(to: .landscape, orientationValue: .landscapeRight)
         
-        // 2. Tàng hình bảng IP và làm mất thanh trạng thái (Tràn viền)
         UIView.animate(withDuration: 0.3) {
             self.setupContainerView.alpha = 0
             self.setNeedsStatusBarAppearanceUpdate()
             self.setNeedsUpdateOfHomeIndicatorAutoHidden()
         } completion: { _ in
             self.setupContainerView.isHidden = true
+            self.exitButton.isHidden = false // Hiện nút X mờ mờ
             self.startConnection(to: ip)
         }
     }
     
-    func showSetupScreen() {
+    @objc func showSetupScreen() {
         DispatchQueue.main.async {
             self.isStreaming = false
             self.setupContainerView.isHidden = false
+            self.exitButton.isHidden = true
             
-            // Hủy kết nối
             self.touchConnection?.cancel()
             self.videoConnection?.cancel()
             
-            // Ép máy xoay Dọc trở lại
+            if #available(iOS 16.0, *) { self.setNeedsUpdateOfSupportedInterfaceOrientations() }
             self.forceOrientation(to: .portrait, orientationValue: .portrait)
             
             UIView.animate(withDuration: 0.3) {
@@ -187,7 +210,7 @@ class ViewController: UIViewController {
     }
     
     // ==========================================
-    // KẾT NỐI MẠNG & GIẢI MÃ VIDEO
+    // KẾT NỐI MẠNG (CÓ CƠ CHẾ TỰ ĐỘNG THỬ LẠI KHI BỊ CHẶN QUYỀN)
     // ==========================================
     func startConnection(to ip: String) {
         setupNetwork(pcIP: ip)
@@ -198,7 +221,12 @@ class ViewController: UIViewController {
         let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(pcIP), port: 8765)
         touchConnection = NWConnection(to: endpoint, using: .tcp)
         touchConnection?.stateUpdateHandler = { [weak self] state in
-            if case .failed(_) = state { self?.showSetupScreen() }
+            if case .failed(_) = state { 
+                // Không kick ra ngoài nữa, tự động thử lại sau 2 giây (Chờ user cấp quyền)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    if self?.isStreaming == true { self?.setupNetwork(pcIP: pcIP) }
+                }
+            }
         }
         touchConnection?.start(queue: queue)
     }
@@ -214,7 +242,12 @@ class ViewController: UIViewController {
         videoConnection = NWConnection(to: endpoint, using: params)
         videoConnection?.stateUpdateHandler = { [weak self] state in
             if case .ready = state { self?.receiveRawH264Data() }
-            if case .failed(_) = state { self?.showSetupScreen() }
+            if case .failed(_) = state { 
+                // Tự động thử lại kết nối Video (Chờ user cấp quyền mạng cục bộ)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    if self?.isStreaming == true { self?.setupH264Stream(pcIP: pcIP) }
+                }
+            }
         }
         videoConnection?.start(queue: videoQueue)
     }
@@ -223,9 +256,14 @@ class ViewController: UIViewController {
         videoConnection?.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
             guard let self = self else { return }
             
-            if let error = error {
-                print("Lỗi nhận Video: \(error)")
-                self.showSetupScreen()
+            if error != nil {
+                // Đứt cáp thì thử lại sau 2 giây
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    if self.isStreaming {
+                        let ip = UserDefaults.standard.string(forKey: "LastPCIP") ?? ""
+                        self.setupH264Stream(pcIP: ip)
+                    }
+                }
                 return
             }
             
@@ -236,8 +274,6 @@ class ViewController: UIViewController {
             
             if !isComplete { 
                 self.receiveRawH264Data() 
-            } else {
-                self.showSetupScreen()
             }
         }
     }
@@ -351,6 +387,9 @@ class ViewController: UIViewController {
     
     func sendTouches(touches: Set<UITouch>, action: String) {
         guard isStreaming, touchConnection?.state == .ready else { return }
+        
+        // Không gửi cảm ứng nếu người dùng bấm vào nút Thoát (X)
+        if let touch = touches.first, exitButton.frame.contains(touch.location(in: view)) { return }
         
         let screenWidth = view.bounds.width
         let screenHeight = view.bounds.height
