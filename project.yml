@@ -1,0 +1,11 @@
+name: GamepadIOS
+options:
+  bundleIdPrefix: com.gamepad
+targets:
+  GamepadIOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "12.0"
+    sources: [Sources]
+    info:
+      path: Sources/Info.plist
